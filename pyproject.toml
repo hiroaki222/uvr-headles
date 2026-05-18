@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uvr-headless"
+version = "0.1.0"
+description = "GUI-less, AI-agent-native CLI wrapper around Ultimate Vocal Remover (fork of Anjok07/ultimatevocalremovergui)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "hiroaki222" }]
+keywords = ["audio", "source-separation", "vocal-remover", "uvr", "cli", "mdx-net", "demucs"]
+
+# Only the minimal deps the separation runtime needs. GUI-only deps
+# (pyglet/tkinterdnd2/playsound/matchering/cryptography/opencv/Pillow/
+#  pyperclip/wget/screeninfo/samplerate/kthread/altgraph, ...) are excluded.
+dependencies = [
+    "numpy==1.23.5",
+    "torch",
+    "librosa==0.9.2",
+    "scipy==1.9.3",
+    "audioread==3.0.0",
+    "pydub==0.25.1",
+    "onnx",
+    "onnxruntime",
+    "onnx2pytorch",
+    "einops==0.6.0",
+    "julius==0.2.7",
+    "omegaconf==2.2.3",
+    "PyYAML==6.0",
+    "ml_collections==0.1.1",
+    "resampy==0.4.2",
+    "diffq",
+    "llvmlite",
+    "pytorch_lightning==2.0.0",
+    "tqdm",
+    # Modern soundfile bundles libsndfile wheels for Linux/macOS(incl. arm64).
+    # Upstream's stale platform split (PySoundFile==0.9 on darwin) has no bundled
+    # libsndfile and breaks without a system install.
+    "soundfile>=0.12.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/hiroaki222/uvr-headles"
+Upstream = "https://github.com/Anjok07/ultimatevocalremovergui"
+
+[project.scripts]
+uvr = "uvr_headless.cli:main"
+
+# Distribution model: clone + editable install (not aimed at PyPI).
+# Declare only the uvr_headless package. The vendored modules
+# (separate / lib_v5 / demucs / gui_data) live at the repo root and are
+# auto-added to sys.path by uvr_headless.core.model_data at import time.
+[tool.setuptools]
+packages = ["uvr_headless", "uvr_headless.core"]

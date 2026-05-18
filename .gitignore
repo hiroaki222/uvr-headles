@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+
+# e2e / scratch
+tmp_e2e/
+tmp/
+
+# Model weights are NOT redistributed here. They are upstream UVR assets;
+# users download them into models/ (see README). Already-tracked small assets
+# (lib_v5/mixer.ckpt, models/VR_Models/UVR-DeNoise-Lite.pth) are unaffected,
+# since .gitignore never untracks files.
+*.onnx
+*.pth
+*.th
+*.ckpt
