@@ -35,9 +35,11 @@ from gui_data.constants import (
     DENOISE_NONE,
     DENOISE_S,
     FLAC,
+    MDX23_CONFIG_CHECKS,
     MDX_ARCH_TYPE,
     MP3,
     MP3_BIT_RATES,
+    NORMAL_REPO,
     VR_ARCH_TYPE,
     WAV,
     WAV_TYPE,
@@ -46,6 +48,11 @@ from gui_data.constants import (
 MDX_MODELS_DIR = model_data.MDX_MODELS_DIR
 VR_MODELS_DIR = model_data.VR_MODELS_DIR
 DEMUCS_MODELS_DIR = model_data.DEMUCS_MODELS_DIR
+DEMUCS_NEWER_REPO_DIR = model_data.DEMUCS_NEWER_REPO_DIR
+MDX_C_CONFIG_PATH = model_data.MDX_C_CONFIG_PATH
+MODEL_DL_CATALOG_JSON = os.path.join(
+    model_data.BASE_PATH, "gui_data", "model_manual_download.json"
+)
 MDX_NAME_SELECT_JSON = model_data.MDX_MODEL_NAME_SELECT
 DEMUCS_NAME_SELECT_JSON = model_data.DEMUCS_MODEL_NAME_SELECT
 
@@ -104,44 +111,161 @@ def _load_json(path):
         return {}
 
 
-def _scan_models():
-    out = {"mdx": [], "vr": [], "demucs": []}
+def _download_catalog():
+    """Build the downloadable-model catalog from gui_data/model_manual_download.json.
 
-    mdx_map = _load_json(MDX_NAME_SELECT_JSON)
-    present = set()
-    if os.path.isdir(MDX_MODELS_DIR):
-        for fn in os.listdir(MDX_MODELS_DIR):
-            if fn.endswith((".onnx", ".ckpt")):
-                present.add(os.path.splitext(fn)[0] if fn.endswith(".onnx") else fn)
-    for stem, friendly in mdx_map.items():
-        out["mdx"].append({
-            "name": friendly, "file": stem,
-            "downloaded": stem in present or os.path.splitext(stem)[0] in present,
-        })
+    Mirrors the model list the UVR GUI offers. Each entry::
 
-    if os.path.isdir(VR_MODELS_DIR):
-        for fn in sorted(os.listdir(VR_MODELS_DIR)):
-            if fn.endswith(".pth"):
-                out["vr"].append({"name": os.path.splitext(fn)[0],
-                                   "file": fn, "downloaded": True})
+        {"name": <name to pass to `separate -m` / `download`>,
+         "arch": "mdx"|"vr"|"demucs",
+         "downloaded": bool,
+         "files": [{"fname", "url", "dest"}]}
 
-    for fn, friendly in _load_json(DEMUCS_NAME_SELECT_JSON).items():
-        out["demucs"].append({"name": friendly, "file": fn})
-    return out
+    Light-only (json + path constants); no torch.
+    """
+    d = _load_json(MODEL_DL_CATALOG_JSON)
+    mdx_map = _load_json(MDX_NAME_SELECT_JSON)  # onnx/ckpt stem -> friendly name
+    catalog = []
+
+    def _entry(name, arch, files):
+        downloaded = all(
+            os.path.isfile(f["dest"]) and os.path.getsize(f["dest"]) > 0
+            for f in files
+        )
+        catalog.append({"name": name, "arch": arch,
+                        "downloaded": downloaded, "files": files})
+
+    # MDX-Net: value is a single ".onnx" filename, hosted on NORMAL_REPO.
+    for key, fname in d.get("mdx_download_list", {}).items():
+        stem = os.path.splitext(fname)[0]
+        name = mdx_map.get(stem, mdx_map.get(fname, stem))
+        _entry(name, "mdx", [{
+            "fname": fname, "url": NORMAL_REPO + fname,
+            "dest": os.path.join(MDX_MODELS_DIR, fname)}])
+
+    # VR: single ".pth" filename on NORMAL_REPO; -m name is the stem.
+    for key, fname in d.get("vr_download_list", {}).items():
+        _entry(os.path.splitext(fname)[0], "vr", [{
+            "fname": fname, "url": NORMAL_REPO + fname,
+            "dest": os.path.join(VR_MODELS_DIR, fname)}])
+
+    # MDX23 (MDX-C): {ckpt_filename: yaml_config_name}. ckpt on NORMAL_REPO,
+    # yaml config on MDX23_CONFIG_CHECKS.
+    for key, pair in d.get("mdx23_download_list", {}).items():
+        files = []
+        for ckpt, yml in pair.items():
+            files.append({"fname": ckpt, "url": NORMAL_REPO + ckpt,
+                          "dest": os.path.join(MDX_MODELS_DIR, ckpt)})
+            files.append({"fname": yml, "url": MDX23_CONFIG_CHECKS + yml,
+                          "dest": os.path.join(MDX_C_CONFIG_PATH, yml)})
+            name = mdx_map.get(ckpt, os.path.splitext(ckpt)[0])
+        _entry(name, "mdx", files)
+
+    # Demucs: {filename: full_url}. v3/v4 go to the newer repo dir.
+    for key, fmap in d.get("demucs_download_list", {}).items():
+        prefix, _, disp = key.partition(": ")
+        newer = ("v3" in prefix) or ("v4" in prefix)
+        dest_dir = DEMUCS_NEWER_REPO_DIR if newer else DEMUCS_MODELS_DIR
+        files = [{"fname": fn, "url": url,
+                  "dest": os.path.join(dest_dir, fn)}
+                 for fn, url in fmap.items()]
+        _entry(disp, "demucs", files)
+
+    return catalog
 
 
 def cmd_list_models(args):
-    data = _scan_models()
+    catalog = _download_catalog()
     if args.json:
-        print(json.dumps(data, indent=2, ensure_ascii=False))
+        print(json.dumps(catalog, indent=2, ensure_ascii=False))
         return 0
     for arch in ("mdx", "vr", "demucs"):
-        print(f"\n[{arch.upper()}]")
-        for m in data[arch]:
-            mark = "" if m.get("downloaded", True) else "  (not downloaded)"
-            print(f"  - {m['name']}{mark}")
-    print("\nNote: (not downloaded) means the weight file is missing. "
-          "Fetch it from the upstream UVR model repo (see README).")
+        rows = [c for c in catalog if c["arch"] == arch]
+        print(f"\n[{arch.upper()}]  ({sum(c['downloaded'] for c in rows)}/{len(rows)} downloaded)")
+        for c in rows:
+            mark = "[x]" if c["downloaded"] else "[ ]"
+            print(f"  {mark} {c['name']}")
+    print('\nDownload one with:  uvr download "<name>"')
+    print('Then run:           uvr separate -i IN -o OUT -m "<name>"')
+    return 0
+
+
+def _http_download(url, dest, label=""):
+    """Stream a URL to dest with a simple progress line. Validates it is not
+    an HTML error page. Returns the number of bytes written."""
+    import urllib.request
+
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    tmp = dest + ".part"
+    req = urllib.request.Request(url, headers={"User-Agent": "uvr-headless"})
+    with urllib.request.urlopen(req) as resp:
+        ctype = resp.headers.get("Content-Type", "")
+        total = int(resp.headers.get("Content-Length", 0) or 0)
+        if "text/html" in ctype:
+            raise SystemExit(f"Got an HTML page, not a file (bad URL?): {url}")
+        done = 0
+        last = -1  # last reported step (percent, or MB when size unknown)
+        is_tty = sys.stdout.isatty()
+        with open(tmp, "wb") as f:
+            while True:
+                chunk = resp.read(1 << 16)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                step = int(done * 100 / total) if total else (done >> 20)
+                if step == last:
+                    continue  # throttle: only on a new step (agent-friendly)
+                last = step
+                if total:
+                    msg = f"  {label} {done >> 20}/{total >> 20}MB ~{step:3d}%"
+                else:
+                    msg = f"  {label} {step}MB"
+                sys.stdout.write((f"\r{msg}" if is_tty else msg + "\n"))
+                sys.stdout.flush()
+    if is_tty:
+        sys.stdout.write("\n")
+    if os.path.getsize(tmp) == 0:
+        os.remove(tmp)
+        raise SystemExit(f"Downloaded 0 bytes: {url}")
+    os.replace(tmp, dest)
+    return os.path.getsize(dest)
+
+
+def cmd_download(args):
+    catalog = _download_catalog()
+    q = args.model
+    exact = [c for c in catalog if c["name"] == q]
+    ci = [c for c in catalog if c["name"].lower() == q.lower()]
+    sub = [c for c in catalog if q.lower() in c["name"].lower()]
+    matches = exact or ci or sub
+    if not matches:
+        raise SystemExit(
+            f"No model matches '{q}'. See `uvr list-models`.")
+    if len(matches) > 1 and not (exact or ci):
+        names = "\n  ".join(f'{c["name"]}  [{c["arch"]}]' for c in matches[:20])
+        raise SystemExit(
+            f"'{q}' is ambiguous, candidates:\n  {names}\n"
+            f"Re-run with the exact name.")
+    entry = matches[0]
+    print(f'Model: {entry["name"]}  [{entry["arch"]}]  '
+          f'({len(entry["files"])} file(s))')
+    got = []
+    for fobj in entry["files"]:
+        if (os.path.isfile(fobj["dest"]) and os.path.getsize(fobj["dest"]) > 0
+                and not args.force):
+            print(f'  skip (exists): {fobj["fname"]}')
+            got.append(fobj["dest"])
+            continue
+        size = _http_download(fobj["url"], fobj["dest"], label=fobj["fname"])
+        print(f'  saved: {fobj["dest"]} ({size >> 20}MB)')
+        got.append(fobj["dest"])
+    result = {"name": entry["name"], "arch": entry["arch"], "files": got}
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(f'Done. Use:  uvr separate -i IN -o OUT '
+              f'--method {entry["arch"]} -m "{entry["name"]}"')
     return 0
 
 
@@ -343,6 +467,13 @@ def main(argv=None):
 
     p_lp = sub.add_parser("list-params", help="emit tunable parameters as JSON")
     p_lp.set_defaults(func=cmd_list_params)
+
+    p_dl = sub.add_parser("download", help="download a model's weight files")
+    p_dl.add_argument("model", help='model name (see list-models)')
+    p_dl.add_argument("--force", action="store_true",
+                      help="re-download even if files exist")
+    p_dl.add_argument("--json", action="store_true", help="JSON output")
+    p_dl.set_defaults(func=cmd_download)
 
     p_sep = sub.add_parser("separate", help="run separation")
     p_sep.add_argument("-i", "--input", required=True, help="input file or directory")

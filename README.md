@@ -38,26 +38,29 @@ pip install -e .          # installs the minimal deps from pyproject.toml + the 
 
 ### Getting model weights
 
-Model weights (`.onnx` / `.pth` …) are **not bundled**. Fetch them from the upstream UVR public model repo and place them under:
+Model weights (`.onnx` / `.pth` …) are **not bundled**. Browse and fetch them
+from the CLI, exactly like the GUI's model list — no manual URLs:
 
-- MDX-Net: `models/MDX_Net_Models/<file>.onnx`
-- VR: `models/VR_Models/<name>.pth`
-- Demucs: `models/Demucs_Models/...`
+```bash
+uvr list-models                 # browse every downloadable model + status
+uvr download "Kim Vocal 2"      # fetch its weight file(s) to the right place
+```
 
-Public release base URL (used by upstream UVR):
-`https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/<file>`
-
-`uvr list-models` marks not-yet-downloaded models with `(not downloaded)`.
+`download` resolves the name against the upstream catalog
+(`gui_data/model_manual_download.json`), downloads to the correct
+`models/...` subdirectory, and skips files that already exist (`--force` to
+redownload). `list-models` shows `[x]` for downloaded, `[ ]` otherwise.
 
 ---
 
 ## Usage
 
-### List models
+### Browse & download models
 
 ```bash
-uvr list-models            # human-readable
+uvr list-models            # human-readable (GUI-parity catalog + status)
 uvr list-models --json     # machine-readable
+uvr download "Kim Vocal 2" # download a model's weight file(s)
 ```
 
 ### Discover parameters (for agents)
@@ -110,10 +113,14 @@ uvr interactive            # answer one prompt at a time to fill in parameters
 ### Agent integration flow
 
 ```
+uvr list-models  ->  agent sees every model + which are downloaded
+uvr download "<name>"  ->  agent fetches the chosen model on demand
 uvr list-params  ->  agent learns the parameter space
-uvr list-models  ->  agent learns which models are usable
 uvr separate --config <generated.json> --json  ->  run & collect structured results
 ```
+
+So "make sample.mp3 an acapella" becomes, for an agent:
+`list-models` → `download "Kim Vocal 2"` → `separate -i sample.mp3 -o out/ -m "Kim Vocal 2"`.
 
 Everything runs locally. No network or external service required.
 

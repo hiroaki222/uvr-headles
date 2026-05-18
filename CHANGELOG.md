@@ -13,7 +13,15 @@ Initial GUI-removal + CLI / AI-agent interface release.
 
 ### Added
 - `uvr_headless` package and the `uvr` CLI (console_scripts in `pyproject.toml`).
-- Subcommands: `list-models` / `list-params` / `separate` / `interactive`.
+- Subcommands: `list-models` / `list-params` / `download` / `separate` /
+  `interactive`.
+- `uvr download "<name>"`: fetch a model's weight file(s) (MDX / VR / MDX23 /
+  Demucs) into the correct `models/...` subdirectory, resolved from the
+  upstream catalog (`gui_data/model_manual_download.json`). Skips existing
+  files (`--force` to redownload), agent-friendly throttled progress. Brings
+  the GUI's "browse list → download → run" flow to the CLI.
+- `list-models` reworked to be catalog-driven (GUI parity): lists every
+  downloadable model per arch with `[x]`/`[ ]` downloaded status.
 - AI-agent discover/run interface:
   `list-params` (emit the parameter space as JSON) → `--config` (specify via
   JSON) → `--json` (structured results). Fully local.
