@@ -80,8 +80,9 @@ PARAM_SPEC = [
      "choices": [True, False], "help": "Whether to do frequency/pitch matching"},
     {"name": "invert_spec", "var": "is_invert_spec", "type": "bool",
      "choices": [True, False], "help": "Derive the secondary stem via spectral inversion"},
-    {"name": "gpu", "var": "is_gpu_conversion", "type": "bool",
-     "choices": [True, False], "help": "Use GPU (CUDA/MPS)"},
+    {"name": "gpu", "var": "is_gpu_conversion", "type": "str",
+     "choices": ["auto", "true", "false"], "default": "auto",
+     "help": "Use GPU: auto (detect mps/cuda) | true | false"},
     {"name": "normalization", "var": "is_normalization", "type": "bool",
      "choices": [True, False], "help": "Normalize the output"},
     {"name": "primary_only", "var": "is_primary_stem_only", "type": "bool",
@@ -272,7 +273,7 @@ def cmd_download(args):
 def cmd_list_params(args):
     spec = [{
         "name": p["name"], "type": p["type"],
-        "default": default_for(p["var"]),
+        "default": p.get("default", default_for(p["var"])),
         "choices": p["choices"], "help": p["help"],
     } for p in PARAM_SPEC]
     payload = {
@@ -309,6 +310,44 @@ def _coerce(spec, raw):
     if spec["type"] == "int":
         return int(raw)
     return str(raw)
+
+
+def _detect_gpu():
+    """Probe the runtime for a usable GPU. Returns
+    {"mps": bool, "cuda": bool, "torch": bool|None, "device": str}.
+    torch is imported lazily so light commands stay torch-free."""
+    try:
+        import torch
+    except ImportError:
+        return {"mps": False, "cuda": False, "torch": False, "device": "cpu"}
+    mps = bool(getattr(torch.backends, "mps", None)
+               and torch.backends.mps.is_available())
+    cuda = bool(torch.cuda.is_available())
+    dev = "cuda" if cuda else ("mps" if mps else "cpu")
+    return {"mps": mps, "cuda": cuda, "torch": True, "device": dev}
+
+
+def _resolve_gpu(val):
+    """Map a gpu setting (auto|true|false) to the bool ModelData expects."""
+    s = str(val).strip().lower()
+    if s in ("", "auto"):
+        info = _detect_gpu()
+        return info["mps"] or info["cuda"]
+    return s in ("1", "true", "yes", "on", "y")
+
+
+def cmd_env(args):
+    info = _detect_gpu()
+    if args.json:
+        print(json.dumps(info, indent=2, ensure_ascii=False))
+        return 0
+    if not info["torch"]:
+        print("torch not installed - cannot detect GPU (light mode).")
+        return 0
+    print(f"mps (Apple GPU) available: {info['mps']}")
+    print(f"cuda (NVIDIA GPU) available: {info['cuda']}")
+    print(f"--gpu auto would use: {info['device']}")
+    return 0
 
 
 def cmd_separate(args, param_values=None):
@@ -360,6 +399,10 @@ def cmd_separate(args, param_values=None):
             f"Missing dependency: {e}\n"
             f"Run `pip install -e .` (or `pip install -r requirements.txt`) first."
         )
+
+    # Resolve gpu (auto|true|false) -> bool. Default is auto when unspecified.
+    overrides["is_gpu_conversion"] = _resolve_gpu(
+        overrides.get("is_gpu_conversion", "auto"))
 
     mappers = {
         "vr_hash_MAPPER": _load_json(model_data.VR_HASH_JSON),
@@ -444,7 +487,7 @@ def cmd_interactive(args):
     pv = {}
     print("\nParameters (Enter to keep the default):")
     for p in PARAM_SPEC:
-        d = default_for(p["var"])
+        d = p.get("default", default_for(p["var"]))
         ch = f" {p['choices']}" if p["choices"] else ""
         raw = input(f"  {p['name']} (default {d!r}){ch}: ").strip()
         if raw != "":
@@ -467,6 +510,10 @@ def main(argv=None):
 
     p_lp = sub.add_parser("list-params", help="emit tunable parameters as JSON")
     p_lp.set_defaults(func=cmd_list_params)
+
+    p_env = sub.add_parser("env", help="show detected GPU (mps/cuda) for --gpu auto")
+    p_env.add_argument("--json", action="store_true", help="JSON output")
+    p_env.set_defaults(func=cmd_env)
 
     p_dl = sub.add_parser("download", help="download a model's weight files")
     p_dl.add_argument("model", help='model name (see list-models)')
