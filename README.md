@@ -104,6 +104,17 @@ Batch a directory and collect results as JSON:
 uvr separate -i ./tracks/ -o ./stems/ -m "UVR-MDX-NET Inst HQ 3" --json
 ```
 
+### GPU
+
+`--gpu` defaults to `auto`: it uses the GPU when one is detected (Apple
+`mps` / NVIDIA `cuda`) and falls back to CPU otherwise. Force it with
+`--gpu true` / `--gpu false`. Check what the machine has:
+
+```bash
+uvr env            # e.g. "mps available: True / --gpu auto would use: mps"
+uvr env --json     # {"mps": true, "cuda": false, "device": "mps", ...}
+```
+
 ### Interactive mode
 
 ```bash

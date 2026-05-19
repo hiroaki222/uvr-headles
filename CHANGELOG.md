@@ -22,6 +22,10 @@ Initial GUI-removal + CLI / AI-agent interface release.
   the GUI's "browse list → download → run" flow to the CLI.
 - `list-models` reworked to be catalog-driven (GUI parity): lists every
   downloadable model per arch with `[x]`/`[ ]` downloaded status.
+- `--gpu` now accepts `auto|true|false` and defaults to `auto` (use the GPU
+  when mps/cuda is detected, else CPU). New `uvr env` reports the detected
+  GPU (mps/cuda) so humans/agents can see what `--gpu auto` will pick.
+  Verified on Apple Silicon: auto -> mps (CPU user time ~28s -> ~3s).
 - AI-agent discover/run interface:
   `list-params` (emit the parameter space as JSON) → `--config` (specify via
   JSON) → `--json` (structured results). Fully local.
